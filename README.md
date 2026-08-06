@@ -4,6 +4,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://choosealicense.com/licenses/agpl-3.0/)
 [![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![DOI Zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.21822140.svg)](https://doi.org/10.5281/zenodo.21822140)
 
 This repository contains GUI-based software for post-processing of data captured
 with the [Insect Detect](https://maxsitt.github.io/insect-detect-docs/) camera trap.

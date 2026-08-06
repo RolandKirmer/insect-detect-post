@@ -6,6 +6,7 @@ authors:
     given-names: Maximilian
     orcid: "https://orcid.org/0000-0002-4096-8556"
 license: AGPL-3.0-or-later
+doi: 10.5281/zenodo.21822140
 repository-code: "https://github.com/maxsitt/insect-detect-post"
 url: "https://maxsitt.github.io/insect-detect-docs/"
 version: "1.0.0"
