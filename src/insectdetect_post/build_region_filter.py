@@ -130,7 +130,11 @@ def _fetch_facet_page(country: str, offset: int, min_occurrence_count: int) -> d
     )
 
 
-def get_country_taxon_keys(country: str, min_occurrence_count: int = 3) -> set[int]:
+def get_country_taxon_keys(
+    country: str,
+    min_occurrence_count: int = 3,
+    page_callback: Callable[[int, int], None] | None = None,
+) -> set[int]:
     """Fetch all GBIF taxon keys with occurrence records in a country.
 
     Pages through GBIF's 'taxonKey' occurrence facet until a page returns fewer than
@@ -141,6 +145,8 @@ def get_country_taxon_keys(country: str, min_occurrence_count: int = 3) -> set[i
     Args:
         country: ISO 3166-1 alpha-2 country code.
         min_occurrence_count: Minimum occurrence records for a taxon to be included.
+        page_callback: Optional callback(pages_fetched, taxa_found), invoked after each page.
+            The total page count is unknown upfront, so callers have to estimate a percentage.
 
     Raises:
         ValueError: If GBIF rejects the country code as invalid.
@@ -151,11 +157,15 @@ def get_country_taxon_keys(country: str, min_occurrence_count: int = 3) -> set[i
     """
     taxon_keys: set[int] = set()
     offset = 0
+    page_num = 0
     while True:
         page = _fetch_facet_page(country, offset, min_occurrence_count)
         counts = page["facets"][0]["counts"] if page.get("facets") else []
         taxon_keys.update(int(entry["name"]) for entry in counts)
+        page_num += 1
         logger.debug("Country '%s': fetched %d facet entries at offset %d", country, len(counts), offset)
+        if page_callback:
+            page_callback(page_num, len(taxon_keys))
         if len(counts) < FACET_PAGE_SIZE:
             break
         offset += FACET_PAGE_SIZE
@@ -178,7 +188,8 @@ def build_region_filter_csv(
         country: ISO 3166-1 alpha-2 country code.
         force_refresh: If True, re-query GBIF even if a cached CSV already exists.
         min_occurrence_count: Minimum occurrence records for a taxon to be included.
-        progress_callback: Optional callback, invoked once before querying GBIF.
+        progress_callback: Optional callback(current, total, message), reporting 0-100% of this
+            function's own work. Callers embedding it in a wider range should scale accordingly.
 
     Raises:
         KeyError: If the TOL-to-GBIF mapping is not a registered asset.
@@ -197,14 +208,36 @@ def build_region_filter_csv(
 
     if progress_callback:
         progress_callback(
-            4, 100,
+            0, 100,
             f"Building region filter for '{country}' from GBIF occurrence data "
             "-- this can take a few minutes..."
         )
 
-    mapping = load_tol_gbif_taxon_keys(progress_callback)
+    # Mapping download and GBIF query both report raw 0-100%, so each gets its own sub-range
+    def download_progress(pct: int, _total: int, message: str) -> None:
+        if progress_callback:
+            progress_callback(int(pct / 10), 100, message)  # 0-10%
+
+    mapping = load_tol_gbif_taxon_keys(download_progress)
+
+    if progress_callback:
+        progress_callback(10, 100, f"Querying GBIF for species recorded in country '{country}'...")
     logger.info("Querying GBIF for species recorded in country '%s'...", country)
-    country_taxon_keys = get_country_taxon_keys(country, min_occurrence_count)
+
+    def query_progress(pages_fetched: int, taxa_found: int) -> None:
+        if progress_callback:
+            # Harmonic saturation keeps the bar advancing over the realistic page range
+            pct = 10 + int(80 * pages_fetched / (pages_fetched + 30))
+            progress_callback(
+                pct, 100,
+                f"Querying GBIF for country '{country}': page {pages_fetched} "
+                f"({taxa_found} taxa found so far)..."
+            )
+
+    country_taxon_keys = get_country_taxon_keys(country, min_occurrence_count, query_progress)
+
+    if progress_callback:
+        progress_callback(90, 100, f"Matching species for country '{country}'...")
 
     matched = (
         mapping.filter(pl.col("gbif_taxon_key").is_in(list(country_taxon_keys)))
@@ -220,4 +253,8 @@ def build_region_filter_csv(
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     matched.write_csv(cache_path)
     logger.info("Built region filter for '%s': %d species -> '%s'", country, matched.height, cache_path)
+
+    if progress_callback:
+        progress_callback(100, 100, f"Built region filter for '{country}': {matched.height} species")
+
     return cache_path

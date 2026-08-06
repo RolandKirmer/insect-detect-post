@@ -107,13 +107,24 @@ def classify_imgs_bioclip(
     classifier = TreeOfLifeClassifier(device=device)
     logger.info("Loaded BioCLIP TreeOfLife classifier")
 
+    # Progress percentage at which classification starts (raised if a region filter is built)
+    cls_start_pct = 5
+
     if filter_arthropods_enabled:
         # Create taxa filter mask for the requested taxon
         taxon_mask = classifier.create_taxa_filter(_TAXON_FILTER_RANK[filter_taxon], [filter_taxon])
 
         if filter_country != "all":
+            def region_filter_progress(pct: int, _total: int, message: str) -> None:
+                """Wrapper callback that maps region filter progress to global progress."""
+                nonlocal cls_start_pct
+                cls_start_pct = 10
+                if progress_callback:
+                    # Scale progress from 3% to 10%
+                    progress_callback(3 + int(pct / 100 * 7), 100, message)
+
             # Create region filter mask for the requested country and combine with taxa filter
-            region_csv = build_region_filter_csv(filter_country, progress_callback=progress_callback)
+            region_csv = build_region_filter_csv(filter_country, progress_callback=region_filter_progress)
             region_mask = classifier.create_taxa_filter_from_csv(str(region_csv))
             combined_mask = [t and r for t, r in zip(taxon_mask, region_mask)]
         else:
@@ -138,7 +149,7 @@ def classify_imgs_bioclip(
                 available_ram / 1024**3, n_species, chunk_size)
 
     if progress_callback:
-        progress_callback(5, 100, f"Classifying {total} crops (chunk size: {chunk_size})...")
+        progress_callback(cls_start_pct, 100, f"Classifying {total} crops (chunk size: {chunk_size})...")
 
     # Pre-allocate results
     timestamps: list[str | None] = [None] * total
@@ -165,8 +176,8 @@ def classify_imgs_bioclip(
             """Wrapper callback that maps chunk progress to global progress."""
             if progress_callback:
                 global_current = _offset + current
-                # Scale progress from 5% to 95%
-                percentage = 5 + int((global_current / max(total, 1)) * 90)
+                # Scale progress from cls_start_pct to 95%
+                percentage = cls_start_pct + int((global_current / max(total, 1)) * (95 - cls_start_pct))
 
                 elapsed = time.time() - start_time
                 rate = global_current / max(elapsed, 0.1)
