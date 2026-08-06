@@ -1,0 +1,39 @@
+source_path: null
+output_path: null
+device: cpu
+processing:
+  crop:
+    enabled: true
+    method: square
+  overlay:
+    enabled: false
+classification:
+  bioclip:
+    enabled: true
+    batch_size: 16
+    rank: species
+    filter_arthropods:
+      enabled: true
+      taxon: Arthropoda
+      country: all
+  ultralytics:
+    enabled: false
+    batch_size: 16
+    model: platform_insect-detect_yolo26s-cls_v1-0-0.onnx
+  sort_crops:
+    enabled: false
+  sort_tracks:
+    enabled: true
+metadata:
+  filter_tracks:
+    enabled: false
+    min_det_conf: 0.2
+    min_dur_s: 2
+    max_dur_s: 3600
+  filter_predictions:
+    enabled: false
+    min_prob_weighted: 0.2
+  estimate_size:
+    enabled: false
+    frame_width_mm: 230
+    frame_height_mm: 130

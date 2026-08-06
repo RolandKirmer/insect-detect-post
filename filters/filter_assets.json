@@ -1,0 +1,9 @@
+{
+  "assets": [
+    {
+      "name": "tol_gbif_taxon_keys_Arthropoda",
+      "url": "https://github.com/maxsitt/insect-detect-post/releases/download/v1.0.0/tol_gbif_taxon_keys_Arthropoda.csv",
+      "sha256": "3dee7ce6b6f8e7db0a9468133c81f8631a42224cecf87ab712eee9beaf809e40"
+    }
+  ]
+}
