@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import qt_themes
-from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtCore import QSettings, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -70,6 +70,9 @@ from insectdetect_post.constants import (
     MODELS_JSON,
     MODELS_PATH,
     PROG_BAR_STYLESHEET,
+    SETTINGS_APP,
+    SETTINGS_ORG,
+    THEME_DEFAULT,
     WINDOW_MIN_HEIGHT,
     WINDOW_MIN_WIDTH,
 )
@@ -121,6 +124,20 @@ def _get_constraints(path: str) -> tuple[int | float, int | float]:
     if min_val is None or max_val is None:
         raise RuntimeError(f"Missing min/max constraints for '{path}'")
     return min_val, max_val
+
+
+def _load_theme() -> str:
+    """Return the persisted theme name, falling back to the default if not available."""
+    theme_name = str(QSettings(SETTINGS_ORG, SETTINGS_APP).value("theme", THEME_DEFAULT))
+    if theme_name not in qt_themes.get_themes():
+        logger.warning("Theme '%s' not available, using '%s'", theme_name, THEME_DEFAULT)
+        return THEME_DEFAULT
+    return theme_name
+
+
+def _save_theme(theme_name: str) -> None:
+    """Persist the selected theme name for the next application start."""
+    QSettings(SETTINGS_ORG, SETTINGS_APP).setValue("theme", theme_name)
 
 
 class ConfigWidget(QWidget):
@@ -1206,6 +1223,7 @@ class MainWindow(QMainWindow):
     reset_btn: StyledButton
     run_btn: StyledButton
     cancel_btn: StyledButton
+    theme_select: QComboBox
     progress_bar: QProgressBar
     progress_label: QLabel
     log_viewer: LogViewer
@@ -1261,7 +1279,6 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(6, 0, 6, 0)
         button_layout.setSpacing(10)
-        button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self.save_btn = StyledButton("Save Config", COLOR_BTN_SAVE)
         self.reset_btn = StyledButton("Reset to Defaults", COLOR_BTN_RESET)
@@ -1279,6 +1296,17 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.reset_btn)
         button_layout.addWidget(self.run_btn)
         button_layout.addWidget(self.cancel_btn)
+        button_layout.addStretch()
+
+        # Theme selector (right-aligned in the control button row)
+        self.theme_select = QComboBox()
+        self.theme_select.addItems(sorted(qt_themes.get_themes()))
+        self.theme_select.setCurrentText(_load_theme())
+        self.theme_select.setToolTip("Select the color theme of the application")
+        self.theme_select.setFixedWidth(150)
+        self.theme_select.currentTextChanged.connect(self._on_theme_change)
+        button_layout.addWidget(QLabel("Theme:"))
+        button_layout.addWidget(self.theme_select)
         main_layout.addLayout(button_layout, 0)
 
         # Create progress bar and label
@@ -1286,7 +1314,7 @@ class MainWindow(QMainWindow):
         progress_layout.setContentsMargins(6, 6, 6, 0)
         progress_layout.setSpacing(2)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(PROG_BAR_STYLESHEET)
+        self._style_progress_bar()
         progress_layout.addWidget(self.progress_bar)
         self.progress_label = QLabel()
         self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1305,6 +1333,33 @@ class MainWindow(QMainWindow):
         self.config_widget.status_updated.connect(self.progress_label.setText)
         self.config_widget.run_enabled_changed.connect(self.run_btn.setEnabled)
         self.config_widget.inspection_active_changed.connect(self.cancel_btn.setEnabled)
+
+    def _style_progress_bar(self) -> None:
+        """Apply the progress bar stylesheet with colors from the active theme."""
+        theme = qt_themes.get_theme() or qt_themes.get_theme(THEME_DEFAULT)
+        if theme is None:
+            return
+        border = theme.crust if theme.is_dark_theme() else theme.surface2
+        background, text = theme.base, theme.text
+        if border is None or background is None or text is None:
+            return
+        self.progress_bar.setStyleSheet(PROG_BAR_STYLESHEET.format(
+            border=border.name(), background=background.name(), text=text.name()
+        ))
+
+    def _repolish_styled_widgets(self) -> None:
+        """Re-apply stylesheets so styled widgets pick up the palette of the active theme."""
+        for widget in self.findChildren(QWidget):
+            if widget.styleSheet() and widget is not self.progress_bar:
+                widget.setStyleSheet(widget.styleSheet())
+
+    @Slot(str)
+    def _on_theme_change(self, theme_name: str) -> None:
+        """Apply the selected color theme to the application and persist the selection."""
+        qt_themes.set_theme(theme_name, style=None)
+        self._repolish_styled_widgets()
+        self._style_progress_bar()
+        _save_theme(theme_name)
 
     def _validate_paths(self, config: dict[str, Any]) -> str | None:
         """Validate source and output paths from config.
@@ -1560,7 +1615,7 @@ def main() -> None:
 
     # Start Qt application
     app = QApplication(sys.argv)
-    qt_themes.set_theme("github_dark")
+    qt_themes.set_theme(_load_theme())
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

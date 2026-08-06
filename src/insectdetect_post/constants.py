@@ -106,18 +106,25 @@ COLOR_BTN_RUN = "#00796B"
 COLOR_BTN_CANCEL = "#D32F2F"
 COLOR_BTN_RESET = "#546E7A"
 
-# GUI styling: progress bar stylesheet
+# GUI settings: QSettings organization/application names for persisted user preferences
+SETTINGS_ORG = "insect-detect"
+SETTINGS_APP = "insect-detect-post"
+
+# GUI styling: default qt-themes theme (used if no theme is persisted)
+THEME_DEFAULT = "github_dark"
+
+# GUI styling: progress bar stylesheet template (colors filled in from the active theme)
 PROG_BAR_STYLESHEET = """
-    QProgressBar {
-        border: 1px solid #151b23;
+    QProgressBar {{
+        border: 1px solid {border};
         border-radius: 5px;
         text-align: center;
-        background-color: #262c36;
-        color: #F5F5F5;
+        background-color: {background};
+        color: {text};
         font-weight: bold;
-    }
-    QProgressBar::chunk {
+    }}
+    QProgressBar::chunk {{
         background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #26A69A, stop:1 #00897B);
         border-radius: 4px;
-    }
+    }}
 """
