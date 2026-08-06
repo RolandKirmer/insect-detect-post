@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use resources from this repository, please cite it using this metadata."
+title: "Software for post-processing of data captured with the Insect Detect camera trap."
+authors:
+  - family-names: Sittinger
+    given-names: Maximilian
+    orcid: "https://orcid.org/0000-0002-4096-8556"
+license: AGPL-3.0-or-later
+repository-code: "https://github.com/maxsitt/insect-detect-post"
+url: "https://maxsitt.github.io/insect-detect-docs/"
+version: "1.0.0"
+date-released: "2026-08-06"
