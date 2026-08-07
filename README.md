@@ -12,6 +12,17 @@ It turns the images and metadata captured by the camera trap into cropped,
 classified and filtered results ready for analysis, by combining image processing,
 AI-based classification and metadata aggregation into a single configurable pipeline.
 
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Source structure](#source-structure)
+- [Output structure](#output-structure)
+- [Settings](#settings)
+- [License](#license)
+- [Citation](#citation)
+
 ## Features
 
 - **Image processing** - crop individual detections from full frames (square or
@@ -277,6 +288,5 @@ License v3.0 ([GNU AGPLv3](https://choosealicense.com/licenses/agpl-3.0/)).
 If you use resources from this repository, please cite it as:
 
 ``` text
-Sittinger, M. (2026). Software for post-processing of data captured with the
-Insect Detect camera trap (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.21822140
+Sittinger, M. (2026). Software for post-processing of data captured with the Insect Detect camera trap (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.21822140
 ```
