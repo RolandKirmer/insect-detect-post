@@ -138,8 +138,9 @@ uv run --no-sync gui
 4. **Run the pipeline** - progress and log messages are shown live, and a run can
    be cancelled at any time.
 
-Models and filter files (e.g. classification models, GBIF country filters) referenced
-in the configuration are downloaded automatically on first use from the release assets.
+Models and supporting files referenced in the configuration (e.g. classification models,
+the BioCLIP Tree of Life Arthropoda-to-GBIF taxon key mapping used to build per-country
+species filters) are downloaded automatically on first use from the release assets.
 
 ### Configuration profiles
 
@@ -150,24 +151,42 @@ or per classifier) can be saved and reused without editing YAML by hand.
 
 ---
 
-## Output
+## Source structure
+
+For data from a single camera trap, select the `insect-detect/data` folder
+as source directory. For data from multiple devices, the following source
+structure is recommended:
+
+``` text
+<source_path>/
+├── insdet-cam01/
+│   └── data/
+├── insdet-cam02/
+│   └── data/
+├── insdet-cam03/
+│   └── data/
+└── ...
+```
+
+## Output structure
 
 Each run creates a timestamped directory under `data_processed/` in your output directory:
 
 ``` text
-data_processed/
-└── 2026-08-05_14-30-12_<source>_processed/
-    ├── 2026-08-05_14-30-12_<config>.json  # config snapshot for this run
-    ├── 2026-08-05_14-30-12_run.log        # full log output
-    ├── 2026-08-05_14-30-12_stats.json     # per-step durations
-    ├── metadata/
-    │   ├── <source>_metadata_merged.csv               # all source metadata, harmonized
-    │   ├── <source>_metadata_merged_classified.csv    # + per-image predictions
-    │   ├── ..._classified_candidates.csv              # per-track candidate predictions
-    │   └── ..._classified_final.csv                   # one row per track (best prediction)
-    └── images/
-        ├── crops/      # cropped detections, optionally sorted into prediction subdirectories
-        └── overlays/   # copies of full frames with bounding boxes + metadata drawn on
+<output_path>/
+└── data_processed/
+    └── 2026-08-05_14-30-12_<source>_processed/
+        ├── 2026-08-05_14-30-12_<config>.json  # config snapshot for this run
+        ├── 2026-08-05_14-30-12_run.log        # full log output
+        ├── 2026-08-05_14-30-12_stats.json     # per-step durations
+        ├── metadata/
+        │   ├── <source>_metadata_merged.csv               # all source metadata, harmonized
+        │   ├── <source>_metadata_merged_classified.csv    # + per-image predictions
+        │   ├── ..._classified_candidates.csv              # per-track candidate predictions
+        │   └── ..._classified_final.csv                   # one row per track (best prediction)
+        └── images/
+            ├── crops/      # cropped detections, optionally sorted into prediction subdirectories
+            └── overlays/   # copies of full frames with bounding boxes + metadata drawn on
 ```
 
 `..._classified_final.csv` is the file to use for analysis - one row per tracking ID with
@@ -180,10 +199,9 @@ its final prediction, weighted probability, duration and (optionally) estimated 
 All settings are validated with [Pydantic](https://pydantic.dev/docs/) - out-of-range
 numeric values are automatically clamped to their allowed bounds and a warning is
 logged. `bioclip` and `ultralytics` are mutually exclusive (enable only one
-classifier), as are `sort_crops` and `sort_tracks`. Crop sorting and metadata
-processing both consume classification results, so they require one of the two
-classifiers to be enabled. `metadata.filter_tracks.min_dur_s` must be less than
-`max_dur_s`.
+classifier), as are `sort_crops` and `sort_tracks`. Crop sorting and metadata processing
+both require classification results, so one of the two classifiers must be enabled.
+`metadata.filter_tracks.min_dur_s` must be less than `max_dur_s`.
 
 ### General
 
@@ -209,11 +227,11 @@ Classification settings applied to cropped detections.
 
 | Setting                                            | Type / Options                                                      | Default                                          | Description                                                                                                                 |
 |----------------------------------------------------|---------------------------------------------------------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `classification.bioclip.enabled`                   | `bool`                                                              | `true`                                           | Enable classification with the BioCLIP 2 model (via `pybioclip` package).                                                   |
+| `classification.bioclip.enabled`                   | `bool`                                                              | `true`                                           | Enable classification with the BioCLIP 2 model (via [`pybioclip`](https://github.com/Imageomics/pybioclip) package).        |
 | `classification.bioclip.batch_size`                | `int` (1-256)                                                       | `16`                                             | Batch size used for BioCLIP inference.                                                                                      |
 | `classification.bioclip.rank`                      | `kingdom`, `phylum`, `class`, `order`, `family`, `genus`, `species` | `species`                                        | Predict to selected taxonomic level. For ranks above species, species-level probabilities are summed up to the target rank. |
 | `classification.bioclip.filter_arthropods.enabled` | `bool`                                                              | `true`                                           | Restrict BioCLIP predictions to Arthropoda (or subtaxa) and/or GBIF occurrence in selected country.                         |
-| `classification.bioclip.filter_arthropods.taxon`   | `Arthropoda`, `Insecta`                                             | `Arthropoda`                                     | Taxon that BioCLIP predictions are restricted to (currently only Arthropoda or Insecta are supported).                      |
+| `classification.bioclip.filter_arthropods.taxon`   | `Arthropoda`, `Insecta`                                             | `Arthropoda`                                     | Taxon that BioCLIP predictions are restricted to (currently only Arthropoda and Insecta are supported).                     |
 | `classification.bioclip.filter_arthropods.country` | country code, or `all`                                              | `all`                                            | Country that BioCLIP Arthropoda predictions are restricted to (based on GBIF occurrence records). `all` for no restriction. |
 | `classification.ultralytics.enabled`               | `bool`                                                              | `false`                                          | Enable classification with a custom Ultralytics YOLO classification model.                                                  |
 | `classification.ultralytics.batch_size`            | `int` (1-256)                                                       | `16`                                             | Batch size used for Ultralytics inference.                                                                                  |
@@ -251,3 +269,14 @@ Metadata processing settings applied to the final results.
 
 This repository is licensed under the terms of the GNU Affero General Public
 License v3.0 ([GNU AGPLv3](https://choosealicense.com/licenses/agpl-3.0/)).
+
+---
+
+## Citation
+
+If you use resources from this repository, please cite it as:
+
+``` text
+Sittinger, M. (2026). Software for post-processing of data captured with the
+Insect Detect camera trap (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.21822140
+```
