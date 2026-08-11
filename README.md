@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/maxsitt/insect-detect-docs/main/docs/assets/logo.png" width="540" alt="Insect Detect logo">
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://choosealicense.com/licenses/agpl-3.0/)
+[![License AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://choosealicense.com/licenses/agpl-3.0/)
 [![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![DOI Zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.21822140.svg)](https://doi.org/10.5281/zenodo.21822140)
 
@@ -152,6 +152,12 @@ uv run --no-sync gui
 Models and supporting files referenced in the configuration (e.g. classification models,
 the BioCLIP Tree of Life Arthropoda-to-GBIF taxon key mapping used to build per-country
 species filters) are downloaded automatically on first use from the release assets.
+
+> [!NOTE]
+> The BioCLIP 2 model and associated files are downloaded from Hugging Face on first use,
+> or again if the BioCLIP repo is updated. This produces extra log output, including
+> HTTP requests and a warning about "unauthenticated requests to the HF Hub" - this is
+> expected and can be safely ignored. No `HF_TOKEN` is required to use this pipeline.
 
 ### Configuration profiles
 
