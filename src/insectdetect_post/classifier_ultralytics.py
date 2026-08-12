@@ -112,6 +112,7 @@ def classify_imgs_ultralytics(
     # Streaming inference
     processed = 0
     last_pct = 5
+    cls_start_time = time.time()
 
     for result in model.predict(
         source=str(crop_dir / "**/*.jpg"),
@@ -140,7 +141,7 @@ def classify_imgs_ultralytics(
         # Progress update (every 1%)
         current_pct = 5 + int((processed / total) * 90)
         if (current_pct > last_pct or processed == total) and progress_callback:
-            elapsed = time.time() - start_time
+            elapsed = time.time() - cls_start_time
             rate = processed / max(elapsed, 0.1)
             remaining = total - processed
             eta = remaining / rate if rate > 0 else 0

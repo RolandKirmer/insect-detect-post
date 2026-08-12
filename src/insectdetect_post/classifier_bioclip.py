@@ -162,6 +162,7 @@ def classify_imgs_bioclip(
     # Classify in memory-bounded chunks; each chunk's probs dict is freed before the next
     pred_index = 0
     total_chunks = (total + chunk_size - 1) // chunk_size
+    cls_start_time = time.time()
 
     for chunk_start in range(0, total, chunk_size):
         chunk = image_paths_str[chunk_start:chunk_start + chunk_size]
@@ -179,7 +180,7 @@ def classify_imgs_bioclip(
                 # Scale progress from cls_start_pct to 95%
                 percentage = cls_start_pct + int((global_current / max(total, 1)) * (95 - cls_start_pct))
 
-                elapsed = time.time() - start_time
+                elapsed = time.time() - cls_start_time
                 rate = global_current / max(elapsed, 0.1)
                 remaining = total - global_current
                 eta = remaining / rate if rate > 0 and remaining > 0 else 0
