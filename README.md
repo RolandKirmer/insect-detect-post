@@ -125,6 +125,29 @@ There are three installation options:
 > Run `nvidia-smi` and check the reported `CUDA Version` (top right)
 > to see the maximum CUDA version your installed driver supports.
 
+### Update
+
+Running the GUI checks for updates on each start. If a new version is available,
+show all changes and confirm the installation with the `Update available` button.
+Restart the application afterwards to use the new version.
+
+You can also update from the command line:
+
+``` shell
+cd insect-detect-post
+uv run --no-sync update
+```
+
+Python packages are re-synced if the dependencies changed, keeping your installed
+`cpu`/`cuda126`/`cuda132` extra. An update installed from the GUI never replaces
+packages while they are in use, so if the dependencies changed, the required
+`uv sync --extra <cpu|cuda126|cuda132>` command is shown after the update instead.
+
+> [!NOTE]
+> Your configuration is never modified by an update. Config files are not tracked by
+> git, so all of your settings and profiles are kept as they are (see
+> [Configuration profiles](#configuration-profiles)).
+
 ---
 
 ## Usage
@@ -162,9 +185,65 @@ species filters) are downloaded automatically on first use from the release asse
 ### Configuration profiles
 
 Configuration files are stored as `.yaml` files in the `configs/` directory. The
-active profile is tracked in `configs/config_selector.yaml` and can be switched,
-created or updated from the GUI, so different processing setups (e.g. per project
-or per classifier) can be saved and reused without editing YAML by hand.
+active profile is tracked in `config_selector.yaml` and can be switched, created
+or updated from the GUI, so different processing setups (e.g. per project or per
+classifier) can be saved and reused without editing YAML by hand.
+
+The default config file (`config.yaml`) and the config selector file are created
+automatically on first launch. Both are ignored by git, together with all profiles
+you create, which means your settings are never modified or removed by an update.
+
+To restore the default values, use the `Reset to Defaults` button in the GUI.
+This resets all settings of the active profile while keeping the selected source
+and output paths. Alternatively, delete `config.yaml` and restart the GUI to
+recreate it from scratch, which also clears both paths.
+
+<details>
+<summary>Default YAML configuration</summary>
+
+``` yaml
+source_path: null
+output_path: null
+device: cpu
+processing:
+  crop:
+    enabled: true
+    method: square
+  overlay:
+    enabled: false
+classification:
+  bioclip:
+    enabled: true
+    batch_size: 16
+    rank: species
+    filter_arthropods:
+      enabled: true
+      taxon: Arthropoda
+      country: all
+  ultralytics:
+    enabled: false
+    batch_size: 16
+    model: platform_insect-detect_yolo26s-cls_v1-0-0.onnx
+  sort_crops:
+    enabled: false
+  sort_tracks:
+    enabled: true
+metadata:
+  filter_tracks:
+    enabled: false
+    min_det_conf: 0.2
+    min_dur_s: 2
+    max_dur_s: 3600
+  filter_predictions:
+    enabled: false
+    min_prob_weighted: 0.2
+  estimate_size:
+    enabled: false
+    frame_width_mm: 230
+    frame_height_mm: 130
+```
+
+</details>
 
 ---
 

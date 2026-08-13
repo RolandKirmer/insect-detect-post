@@ -29,6 +29,9 @@ FILTERS_PATH: Path = BASE_PATH / "filters"
 # Path to the config selector file that stores the filename of the active config file
 CONFIG_SELECTOR_PATH: Path = CONFIGS_PATH / "config_selector.yaml"
 
+# Path to the default config file, generated from the AppConfig defaults on first launch
+CONFIG_DEFAULT_PATH: Path = CONFIGS_PATH / "config.yaml"
+
 # Paths to the release assets registries
 MODELS_JSON: Path = MODELS_PATH / "models.json"
 FILTER_ASSETS_JSON: Path = FILTERS_PATH / "filter_assets.json"
@@ -105,6 +108,7 @@ COLOR_BTN_SAVE = "#455A8A"
 COLOR_BTN_RUN = "#00796B"
 COLOR_BTN_CANCEL = "#D32F2F"
 COLOR_BTN_RESET = "#546E7A"
+COLOR_BTN_UPDATE = "#FFA000"
 
 # GUI settings: QSettings organization/application names for persisted user preferences
 SETTINGS_ORG = "insect-detect"

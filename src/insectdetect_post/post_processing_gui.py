@@ -20,6 +20,7 @@ Functions:
 from __future__ import annotations
 
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ from insectdetect_post.asset_manager import list_registered_filenames
 from insectdetect_post.config import (
     AppConfig,
     check_config_changes,
+    ensure_config_files,
     get_field_constraints,
     get_field_literals,
     load_config_selector,
@@ -62,6 +64,7 @@ from insectdetect_post.constants import (
     COLOR_BTN_RESET,
     COLOR_BTN_RUN,
     COLOR_BTN_SAVE,
+    COLOR_BTN_UPDATE,
     COLOR_GROUP_CLASSIFICATION,
     COLOR_GROUP_METADATA,
     COLOR_GROUP_PROCESSING,
@@ -88,6 +91,8 @@ from insectdetect_post.gui_utils import (
 )
 from insectdetect_post.pipeline_runner import PipelineRunner
 from insectdetect_post.styled_button import StyledButton
+from insectdetect_post.update import UpdateInfo, sync_command
+from insectdetect_post.update_runner import UpdateChecker, UpdateInstaller
 
 # Create module-level logger
 logger = logging.getLogger(__name__)
@@ -168,11 +173,7 @@ class ConfigWidget(QWidget):
     estimate_size_box: Any
 
     def __init__(self) -> None:
-        """Initialize the configuration widget with config and model directories.
-
-        Raises:
-            ValueError: If no config files exist, or the config selector file is missing.
-        """
+        """Initialize the configuration widget with config and model directories."""
         super().__init__()
         self._config: AppConfig | None = None
         self._config_updates: dict[str, Any] = {}
@@ -191,27 +192,19 @@ class ConfigWidget(QWidget):
         self._metadata_boxes: list[tuple[Any, str]] = []
         self.dataset_context: DatasetContext | None = None
 
+        # Get active config from config selector (creates config files if missing)
+        config_selector = load_config_selector()
+        self.config_active = config_selector.config_active
+
         # Get available configs and models
         self._configs = sorted([f.name for f in CONFIGS_PATH.glob("*.yaml")
-                                if f.name != "config_selector.yaml"])
+                                if f.name != CONFIG_SELECTOR_PATH.name])
         local_models = {f.name for fmt in ["*.pt", "*.onnx"] for f in MODELS_PATH.glob(fmt)}
         try:
             registered_models = set(list_registered_filenames(MODELS_JSON))
         except FileNotFoundError:
             registered_models = set()
         self._models = sorted(local_models | registered_models)
-        if not self._configs:
-            raise ValueError(f"No .yaml config files found in {CONFIGS_PATH}")
-        if not CONFIG_SELECTOR_PATH.exists():
-            raise ValueError(f"Config selector file not found at {CONFIG_SELECTOR_PATH}")
-
-        # Get active config from config selector
-        config_selector = load_config_selector()
-        self.config_active = config_selector.config_active
-        if self.config_active not in self._configs:
-            logger.warning("Selected config %s not found.", self.config_active)
-            logger.warning("Defaulting to first config in directory: %s", self._configs[0])
-            self.config_active = self._configs[0]
 
         # Create UI layout
         self._create_ui_layout()
@@ -1063,7 +1056,7 @@ class ConfigWidget(QWidget):
     def _activate_config(self, config_name: str, loaded_config: AppConfig | None = None) -> None:
         """Activate the specified config file and update config selector."""
         self._configs = sorted([f.name for f in CONFIGS_PATH.glob("*.yaml")
-                               if f.name != "config_selector.yaml"])
+                               if f.name != CONFIG_SELECTOR_PATH.name])
         self.config_select.blockSignals(True)
         self.config_select.clear()
         self.config_select.addItems(self._configs)
@@ -1223,6 +1216,7 @@ class MainWindow(QMainWindow):
     reset_btn: StyledButton
     run_btn: StyledButton
     cancel_btn: StyledButton
+    update_btn: StyledButton
     theme_select: QComboBox
     progress_bar: QProgressBar
     progress_label: QLabel
@@ -1233,6 +1227,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._pipeline_thread: QThread | None = None
         self._pipeline_runner: PipelineRunner | None = None
+        self._update_thread: QThread | None = None
+        self._update_worker: UpdateChecker | UpdateInstaller | None = None
+        self._update_info: UpdateInfo | None = None
+        self._update_available: bool = False
+        self._inspection_active: bool = False
 
         # Connect root logger to LogCache
         self._log_cache: LogCache = LogCache()
@@ -1251,6 +1250,9 @@ class MainWindow(QMainWindow):
 
         # Create UI layout
         self._create_ui_layout()
+
+        # Check for updates once the main window is displayed
+        QTimer.singleShot(1000, self._start_update_check)
 
     @property
     def _is_pipeline_running(self) -> bool:
@@ -1298,6 +1300,13 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.cancel_btn)
         button_layout.addStretch()
 
+        # Update button (right-aligned, hidden until an update is available)
+        self.update_btn = StyledButton("Update available", COLOR_BTN_UPDATE)
+        self.update_btn.setToolTip("Install the latest version from GitHub")
+        self.update_btn.setVisible(False)
+        self.update_btn.clicked.connect(self._on_update_click)
+        button_layout.addWidget(self.update_btn)
+
         # Theme selector (right-aligned in the control button row)
         self.theme_select = QComboBox()
         self.theme_select.addItems(sorted(qt_themes.get_themes()))
@@ -1332,7 +1341,7 @@ class MainWindow(QMainWindow):
         self.config_widget.progress_updated.connect(self.progress_bar.setValue)
         self.config_widget.status_updated.connect(self.progress_label.setText)
         self.config_widget.run_enabled_changed.connect(self.run_btn.setEnabled)
-        self.config_widget.inspection_active_changed.connect(self.cancel_btn.setEnabled)
+        self.config_widget.inspection_active_changed.connect(self._on_inspection_active_change)
 
     def _style_progress_bar(self) -> None:
         """Apply the progress bar stylesheet with colors from the active theme."""
@@ -1360,6 +1369,202 @@ class MainWindow(QMainWindow):
         self._repolish_styled_widgets()
         self._style_progress_bar()
         _save_theme(theme_name)
+
+    @Slot(bool)
+    def _on_inspection_active_change(self, active: bool) -> None:
+        """Enable cancelling a running dataset inspection and block updates while it runs."""
+        self._inspection_active = active
+        self.cancel_btn.setEnabled(active)
+        self._sync_update_btn()
+
+    def _set_update_available(self, available: bool) -> None:
+        """Show or hide the update button."""
+        self._update_available = available
+        self.update_btn.setVisible(available)
+        self._sync_update_btn()
+
+    def _sync_update_btn(self) -> None:
+        """Enable the update button only if an update is available and no task is running."""
+        self.update_btn.setEnabled(self._update_available and not self._inspection_active
+                                   and not self._is_pipeline_running)
+
+    def _set_controls_locked(self, locked: bool) -> None:
+        """Lock or unlock all controls while an update is installed/finished/failed."""
+        self.save_btn.setEnabled(not locked)
+        self.reset_btn.setEnabled(not locked)
+        if locked:
+            self.run_btn.setEnabled(False)
+            self.update_btn.setEnabled(False)
+            self.config_widget.lock_ui()
+        else:
+            # Unlocking re-emits run_enabled_changed, which restores the run button
+            self.config_widget.unlock_ui()
+            self._sync_update_btn()
+
+    def _start_update_worker(self, worker: UpdateChecker | UpdateInstaller) -> None:
+        """Move an update worker to its own thread and start it."""
+        thread = QThread()
+        self._update_thread = thread
+        self._update_worker = worker
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        thread.start()
+
+    def _cleanup_update_thread(self) -> None:
+        """Stop and delete the update thread/worker, releasing their Qt-side resources."""
+        if self._update_thread:
+            self._update_thread.quit()
+            if not self._update_thread.wait(5000):
+                logger.warning("Update thread not responding, forcing termination...")
+                self._update_thread.terminate()
+                self._update_thread.wait(500)
+            self._update_thread.deleteLater()
+            self._update_thread = None
+
+        if self._update_worker:
+            self._update_worker.deleteLater()
+            self._update_worker = None
+
+    def _start_update_check(self) -> None:
+        """Check for available updates in the background."""
+        checker = UpdateChecker()
+        checker.finished.connect(self._on_update_check_finish)
+        checker.error.connect(self._on_update_check_error)
+        self._start_update_worker(checker)
+
+    @Slot(object)
+    def _on_update_check_finish(self, info: UpdateInfo | None) -> None:
+        """Show the update button if an update is available."""
+        self._cleanup_update_thread()
+        self._update_info = info
+        if info is None:
+            logger.debug("No updates available")
+            return
+
+        logger.info("Update available: %d new commit(s) on GitHub", len(info.commits))
+        self._set_update_available(True)
+
+    @Slot(str)
+    def _on_update_check_error(self, error_msg: str) -> None:
+        """Log a failed update check without interruption."""
+        self._cleanup_update_thread()
+        logger.debug("Update check skipped: %s", error_msg)
+
+    @Slot()
+    def _on_update_click(self) -> None:
+        """Show the available update and install it if confirmed."""
+        info = self._update_info
+        if info is None:
+            return
+
+        if info.version_local and info.version_remote and info.version_local != info.version_remote:
+            text = f"Insect Detect Post {info.version_local} → {info.version_remote}"
+        else:
+            text = "A new version of Insect Detect Post is available."
+
+        informative = (f"{len(info.commits)} new commit(s) will be applied.\n\n"
+                       "Your configuration and profiles are not affected.")
+        if info.local_changes:
+            informative += (f"\n\nYour local changes to {len(info.local_changes)} file(s) will be "
+                            "stashed and restored afterwards.")
+
+        details = "\n".join([*info.commits, "",
+                             *(f"{status:<8} {path}" for status, path in info.changes)])
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Update Available")
+        msg.setText(text)
+        msg.setInformativeText(informative)
+        msg.setDetailedText(details)
+        install_btn = msg.addButton("Install Update", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(install_btn)
+        msg.exec()
+
+        if msg.clickedButton() is install_btn:
+            self._install_update(info)
+
+    def _install_update(self, info: UpdateInfo) -> None:
+        """Lock the interface and install the update in the background."""
+        logger.info("Installing update...")
+        self.progress_bar.setRange(0, 0)
+        self.progress_label.setText("Installing update...")
+        self._set_controls_locked(True)
+
+        installer = UpdateInstaller(info)
+        installer.finished.connect(self._on_update_install_finish)
+        installer.error.connect(self._on_update_install_error)
+        self._start_update_worker(installer)
+
+    def _reset_progress(self, status: str) -> None:
+        """Return the progress bar to its determinate state and show a status message."""
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText(status)
+
+    @Slot()
+    def _on_update_install_finish(self) -> None:
+        """Prompt for a restart after the update was installed."""
+        self._cleanup_update_thread()
+        self._reset_progress("Update installed")
+        self._set_controls_locked(False)
+        self._set_update_available(False)
+        logger.info("Update complete!")
+
+        info, self._update_info = self._update_info, None
+        version = f" to version {info.version_remote}" if info and info.version_remote else ""
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Update Installed")
+        msg.setText(f"Insect Detect Post was updated{version}.")
+
+        if info and info.needs_sync:
+            command = sync_command()
+            msg.setInformativeText(
+                "This update changed the dependencies. Close the application and run the "
+                f"following command to finish the update:\n\n{command}"
+            )
+            copy_btn = msg.addButton("Copy Command", QMessageBox.ButtonRole.ActionRole)
+            msg.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            if msg.clickedButton() is copy_btn:
+                QApplication.clipboard().setText(command)
+                logger.info("Copied '%s' to the clipboard", command)
+        else:
+            msg.setInformativeText("Restart the application to use the new version.")
+            restart_btn = msg.addButton("Restart Now", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+            msg.setDefaultButton(restart_btn)
+            msg.exec()
+            if msg.clickedButton() is restart_btn:
+                self._restart_application()
+
+    @Slot(str)
+    def _on_update_install_error(self, error_msg: str) -> None:
+        """Report a failed update installation."""
+        self._cleanup_update_thread()
+        self._reset_progress("Update failed")
+        self._set_controls_locked(False)
+        logger.error(error_msg)
+        QMessageBox.critical(self, "Update Failed", error_msg)
+
+    def _restart_application(self) -> None:
+        """Start a new instance of the application and close the current one."""
+        try:
+            process = subprocess.Popen([sys.executable, "-m", "insectdetect_post.post_processing_gui"],
+                                       cwd=BASE_PATH)
+        except OSError:
+            logger.exception("Could not restart the application")
+            QMessageBox.warning(self, "Restart Failed",
+                                "Could not restart automatically. Please start the application again.")
+            return
+
+        # Stop the new instance again if closing the current one was cancelled
+        if not self.close():
+            logger.info("Restart cancelled.")
+            process.terminate()
 
     def _validate_paths(self, config: dict[str, Any]) -> str | None:
         """Validate source and output paths from config.
@@ -1485,6 +1690,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(True)
         self.save_btn.setEnabled(False)
         self.reset_btn.setEnabled(False)
+        self.update_btn.setEnabled(False)
         self.config_widget.lock_ui()
 
         # Start pipeline
@@ -1542,6 +1748,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(False)
         self.save_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
+        self._sync_update_btn()
         self.config_widget.unlock_ui()
         self.progress_bar.setValue(0)
         self.progress_label.setText("Ready")
@@ -1550,7 +1757,15 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle window close event with pipeline cleanup."""
 
-        # Clean up inspector thread if running
+        # Never interrupt a running update, as this could leave a partially updated installation
+        if isinstance(self._update_worker, UpdateInstaller):
+            QMessageBox.information(self, "Update Running",
+                                    "The update is still being installed. Please wait until it is finished.")
+            event.ignore()
+            return
+
+        # Clean up update and inspector threads if running
+        self._cleanup_update_thread()
         self.config_widget.cancel_inspection()
 
         if self._is_pipeline_running:
@@ -1601,16 +1816,15 @@ def main() -> None:
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger("insectdetect_post").setLevel(logging.DEBUG)
 
-    if not CONFIGS_PATH.exists():
-        logger.error("Config directory not found at %s", CONFIGS_PATH)
-        sys.exit(1)
-    if not MODELS_PATH.exists():
-        logger.error("Model directory not found at %s", MODELS_PATH)
+    # Create config files with default values if they are missing
+    try:
+        ensure_config_files()
+    except OSError:
+        logger.exception("Could not create config files in %s", CONFIGS_PATH)
         sys.exit(1)
 
-    config_files = [f for f in CONFIGS_PATH.glob("*.yaml") if f.name != "config_selector.yaml"]
-    if not config_files:
-        logger.error("No .yaml config files found in %s", CONFIGS_PATH)
+    if not MODELS_PATH.exists():
+        logger.error("Model directory not found at %s", MODELS_PATH)
         sys.exit(1)
 
     # Start Qt application

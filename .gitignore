@@ -1,8 +1,10 @@
 # Insect Detect Post project-specific
-models/*.onnx
-models/*.pt
+configs/*.yaml
 filters/tol_gbif_species_*.csv
 filters/tol_gbif_taxon_keys_*.csv
+models/*.onnx
+models/*.pt
+data_processed/
 
 # Environments
 .env

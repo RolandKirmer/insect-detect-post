@@ -7,6 +7,7 @@ Docs:     https://maxsitt.github.io/insect-detect-docs/
 
 Classes:
     PipelineCancelled: Raised when the user requests cancellation of a pipeline or inspection run.
+    UpdateError:       Raised when an update step fails and needs manual intervention.
 """
 
 from __future__ import annotations
@@ -14,3 +15,7 @@ from __future__ import annotations
 
 class PipelineCancelled(Exception):
     """Raised when the user requests cancellation of a pipeline or inspection run."""
+
+
+class UpdateError(Exception):
+    """Raised when an update step fails and needs manual intervention."""

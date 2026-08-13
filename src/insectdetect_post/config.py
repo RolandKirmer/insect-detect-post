@@ -11,6 +11,7 @@ Classes:
 Functions:
     get_field_constraints(): Extract numeric constraints for a nested field from a Pydantic model.
     get_field_literals(): Extract allowed Literal values for a nested field from a Pydantic model.
+    ensure_config_files(): Create the default config and config selector file if they are missing.
     load_config_selector(): Load the config selector file and return a validated ConfigSelectorModel.
     load_config_yaml(): Load a YAML config file, clamp out-of-range values and return a validated AppConfig.
     check_config_changes(): Return True if two configs differ.
@@ -26,10 +27,11 @@ from pathlib import Path
 from typing import Any, Literal, cast, get_args
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from insectdetect_post.constants import (
     BIOCLIP_COUNTRY_OPTIONS,
+    CONFIG_DEFAULT_PATH,
     CONFIG_SELECTOR_PATH,
     CONFIGS_PATH,
 )
@@ -396,29 +398,55 @@ def _deep_update(base: dict[str, object], updates: dict[str, object]) -> None:
             base[key] = value
 
 
+def ensure_config_files() -> None:
+    """Create the configs directory, default config file and config selector file if missing.
+
+    Config files are generated from the AppConfig defaults on first launch.
+    Deleting a config file restores its default values on the next start.
+
+    Raises:
+        OSError: If the configs directory or the config files could not be created.
+    """
+    CONFIGS_PATH.mkdir(parents=True, exist_ok=True)
+
+    if not CONFIG_DEFAULT_PATH.exists():
+        with open(CONFIG_DEFAULT_PATH, "w", encoding="utf-8") as f:
+            yaml.dump(AppConfig().model_dump(), f, **_YAML_DUMP_KWARGS)
+        logger.info("Created default config file '%s'.", CONFIG_DEFAULT_PATH)
+
+    if not CONFIG_SELECTOR_PATH.exists():
+        update_config_selector(CONFIG_DEFAULT_PATH.name)
+        logger.info("Created config selector file '%s'.", CONFIG_SELECTOR_PATH)
+
+
 def load_config_selector() -> ConfigSelectorModel:
     """Load config selector file, validate and return a ConfigSelectorModel.
 
-    Raises FileNotFoundError with a list of available config files if
-    the referenced config file does not exist in the configs/ directory.
+    Missing config files are created with their default values. If the selector file is
+    unreadable or points to a config file that no longer exists, it falls back to the
+    default config file and is updated accordingly.
 
     Returns:
         ConfigSelectorModel with the validated active config filename.
     """
-    with open(CONFIG_SELECTOR_PATH, "r", encoding="utf-8") as f:
-        raw: dict[str, object] = yaml.safe_load(f) or {}
+    ensure_config_files()
+    config_default = CONFIG_DEFAULT_PATH.name
 
-    selector = ConfigSelectorModel.model_validate(raw)
+    try:
+        with open(CONFIG_SELECTOR_PATH, "r", encoding="utf-8") as f:
+            raw: dict[str, object] = yaml.safe_load(f) or {}
+        selector = ConfigSelectorModel.model_validate(raw)
+    except (OSError, yaml.YAMLError, ValidationError) as e:
+        logger.warning("Could not read config selector file '%s' (%s). Falling back to '%s'.",
+                       CONFIG_SELECTOR_PATH, e, config_default)
+        update_config_selector(config_default)
+        return ConfigSelectorModel(config_active=config_default)
 
-    config_active_path = CONFIGS_PATH / selector.config_active
-    if not config_active_path.exists():
-        available = [p.name for p in CONFIGS_PATH.glob("*.yaml")
-                     if p.name != CONFIG_SELECTOR_PATH.name]
-        raise FileNotFoundError(
-            f"Active config file '{selector.config_active}' not found in '{CONFIGS_PATH}'.\n"
-            f"Available config files: {available}\n"
-            f"Update '{CONFIG_SELECTOR_PATH.name}' to point to an existing file."
-        )
+    if not (CONFIGS_PATH / selector.config_active).exists():
+        logger.warning("Active config file '%s' not found in '%s'. Falling back to '%s'.",
+                       selector.config_active, CONFIGS_PATH, config_default)
+        update_config_selector(config_default)
+        return ConfigSelectorModel(config_active=config_default)
 
     return selector
 
