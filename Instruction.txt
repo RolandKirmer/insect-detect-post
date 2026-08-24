@@ -1,0 +1,155 @@
+INSECT-DETECT POSTPROCESSING - UPDATE INSTRUCTIONS
+
+
+============================================================
+1. XPU UPDATE
+============================================================
+
+Run the update script from the project directory.
+
+Option A - using uv:
+
+uv run --no-sync python enable_xpu.py
+
+
+Option B - using Anaconda Python:
+
+C:\Users\XXXX\anaconda3\python.exe enable_xpu.py
+
+
+After the update, synchronize the environment with XPU support:
+
+uv sync --extra xpu
+
+
+Test whether XPU is available:
+
+uv run --no-sync python -c "import torch; print('XPU:', torch.xpu.is_available()); print(torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'NO XPU')"
+
+
+Expected output should contain something like:
+
+XPU: True
+Intel(R) Arc(TM) Graphics (Example)
+
+
+
+============================================================
+2. FOLDER STRUCTURE + METADATA UPDATE
+============================================================
+
+This update preserves the original folder structure for the generated crops
+and additionally saves the metadata CSV files inside the corresponding folders.
+
+Option A - using uv:
+
+uv run --no-sync python update_structure_metadata.py
+
+
+Option B - using Anaconda Python:
+
+C:\Users\XXXX\anaconda3\python.exe update_structure_metadata.py
+
+
+If the update was successful, the script should end with:
+
+UPDATE COMPLETE
+
+
+The script automatically creates a backup before changing any files.
+
+Example backup folder:
+
+structure_metadata_backup_20260823_184500
+
+
+
+============================================================
+3. INSECT / NO-INSECT FILTER UPDATE
+============================================================
+
+Before running this update, make sure that the following file already exists:
+
+src\insectdetect_post\insect_filter.py
+
+
+Run the update script.
+
+Option A - using uv:
+
+uv run --no-sync python update_insect_filter.py
+
+
+Option B - using Anaconda Python:
+
+C:\Users\XXXX\anaconda3\python.exe update_insect_filter.py
+
+
+Afterwards, install LiteRT:
+
+uv add --no-sync ai-edge-litert
+
+
+Then synchronize the environment again with XPU support:
+
+uv sync --extra xpu (cpu, if xpu not updated)
+
+
+The Insect / No-Insect filter can then be configured in the GUI.
+
+Example settings:
+
+Insect / No-Insect Filter: ON
+No-Insect Confidence: 0.90
+TFLite Model: C:\...\trained.tflite
+
+Save No-Insect Crops: ON / OFF
+Output Path: E:\No-Insect-Crops
+
+
+
+============================================================
+4. START THE PROGRAM
+============================================================
+
+Start the GUI with:
+
+uv run --no-sync gui
+
+
+
+============================================================
+NOTE ABOUT WINDOWS APPLICATION CONTROL
+============================================================
+
+If a command such as
+
+uv run --no-sync python update_structure_metadata.py
+
+fails with an error such as:
+
+Eine Anwendungssteuerungsrichtlinie hat diese Datei blockiert.
+
+use the Anaconda Python option instead:
+
+C:\Users\XXXX\anaconda3\python.exe update_structure_metadata.py
+
+
+The same applies to the other update scripts.
+
+
+============================================================
+RECOMMENDED UPDATE ORDER
+============================================================
+
+1. enable_xpu.py
+
+2. update_structure_metadata.py
+
+3. update_insect_filter.py
+
+4. uv add --no-sync ai-edge-litert
+
+5. uv sync --extra xpu
+
+6. uv run --no-sync gui
